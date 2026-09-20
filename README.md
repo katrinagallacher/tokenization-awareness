@@ -1,20 +1,23 @@
 # Signs of tokenization awareness in Qwen3-4B
 
-Feature **118230** in the layer-0 transcoder for Qwen3-4B fires on English
-compound words — but not on all of them. It fires on the compounds whose
-tokenization is *unstable*: one token when preceded by a space, several when
-not.
+I discovered a group of features in the early layers of the Qwen3-4B transcoder that fire on English compound words with unstable tokenization pattern (in some context, the compound is represented with one token, and in different context with two).
 
 ```
-newsletter    →  newsletter          firefighter  →  fire · fighter
- newsletter   →   newsletter          firefighter →   firefighter
-                  ↑ one token either way              ↑ one token only with the space
+Single-token compounds:
+newsletter    →  newsletter          
+_newsletter   →  _newsletter
+
+Multi-token compounds:
+flowerpot    →  flower · pot
+_flowerpot    → _flower · pot
+
+Compounds with unstable tokenization:
+firefighter  →  fire · fighter
+_firefighter →  _firefighter
+
 ```
 
-The words that are stably one token barely register. The words that are stably
-several tokens barely register. The ambiguous middle lights up. That looks like
-a compensatory signal: at layer 0, before anything semantic has happened, the
-model is flagging words whose identity its own tokenizer left unresolved.
+The existence of such features sheds light on both token merging quirks and the detokenization mechanism in the early LLM layers. 
 
 📄 **[Read the write-up](https://solidgoldmagikarp.github.io/tokenization-awareness/)** ·
 🔬 **[Feature on Neuronpedia](https://www.neuronpedia.org/qwen3-4b/0-transcoder-hp/118230)** ·
