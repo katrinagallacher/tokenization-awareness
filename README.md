@@ -33,7 +33,7 @@ with and without a leading space. Activations were measured on the space-prefixe
 | Group | Example | With space | Without | n | Mean activation |
 |---|---|---|---|---:|---:|
 | **Single-token** | `newsletter` | 1 token | 1 token | 82 | 1.22 |
-| **Unstable** | `firefighter` | 1 token | 2 tokens | 390 | **6.13** |
+| **Unstable (Conditional Single)** | `firefighter` | 1 token | 2 tokens | 390 | **6.13** |
 | **Multi-token** | `sunflower` | 2 tokens | 2 tokens | 1,093 | 0.03 |
 
 All three pairwise differences were significant (p < 1e-13). The conditional group's mean is 5× the true-single group's and 200× the true-multi group's.
@@ -146,12 +146,13 @@ pytest -m "not slow"    # skip the ones that download the tokenizer
 
 ## Credits
 
-Compound word list from
+- Compound word list from
 [proofreadingservices.com](https://www.proofreadingservices.com/pages/compound-words-list).
-Transcoders by [Michael Hanna](https://huggingface.co/mwhanna/qwen3-4b-transcoders).
-Feature exploration via [Neuronpedia](https://www.neuronpedia.org/)'s Circuit
-Tracer. Hooks by [TransformerLens](https://github.com/TransformerLensOrg/TransformerLens).
-Frequency scores by [wordfreq](https://doi.org/10.5281/zenodo.7199437).
+- Transcoders by [Michael Hanna](https://huggingface.co/mwhanna/qwen3-4b-transcoders).
+- Feature exploration via [Neuronpedia](https://www.neuronpedia.org/)'s Circuit
+Tracer.
+- Hooks by [TransformerLens](https://github.com/TransformerLensOrg/TransformerLens).
+- Frequency scores by [wordfreq](https://doi.org/10.5281/zenodo.7199437).
 
 Written as a research proposal for Neel Nanda's MATS stream, Summer 2026.
 
