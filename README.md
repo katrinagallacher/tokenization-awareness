@@ -1,6 +1,6 @@
 # Signs of tokenization awareness in Qwen3-4B
 
-I discovered a group of features in the early layers of the Qwen3-4B transcoder that fire on English compound words with unstable tokenization pattern (in some context, the compound is represented with one token, and in different context with two).
+I discovered a group of features in the early layers of the Qwen3-4B transcoder that fire on English compound words with unstable tokenization pattern (in some context, the compound is represented with one token, and in different context with two). The existence of such features sheds light on both token merging quirks and the detokenization mechanism in the early LLM layers.
 
 ```
 Single-token compounds:
@@ -8,8 +8,8 @@ newsletter    →  newsletter
 _newsletter   →  _newsletter
 
 Multi-token compounds:
-flowerpot    →  flower · pot
-_flowerpot    → _flower · pot
+sunflower    →  sun · flower
+_sunflower    → _sun · flower
 
 Compounds with unstable tokenization:
 firefighter  →  fire · fighter
@@ -17,38 +17,45 @@ _firefighter →  _firefighter
 
 ```
 
-The existence of such features sheds light on both token merging quirks and the detokenization mechanism in the early LLM layers. 
-
 📄 **[Read the write-up](https://solidgoldmagikarp.github.io/tokenization-awareness/)** ·
 🔬 **[Feature on Neuronpedia](https://www.neuronpedia.org/qwen3-4b/0-transcoder-hp/118230)** ·
 ✍️ **[Original post on Medium](https://medium.com/@solidgoldmagikarp/a-breakthrough-feature-signs-of-tokenization-awareness-in-llms-058fe880ef9f)**
 
 ---
 
-## The result
+## Method
 
-1,566 closed compounds, grouped by how Qwen3-4B's BPE tokenizer treats them
-with and without a leading space:
+I measured activation of one Qwen3-4B's L0 feature on a dataset of 1,566 closed compounds, grouped by how Qwen3-4B's BPE tokenizer treats them
+with and without a leading space. Activations were measured on the space-prefixed form of every compound. In case of multi-token compounds, the reading was taken at the last token position. The hook point was `blocks.0.ln2.hook_normalized`**: the layer-normalisedresidual stream entering the MLP.
+
+## Results
 
 | Group | Example | With space | Without | n | Mean activation |
 |---|---|---|---|---:|---:|
-| **True single-token** | `newsletter` | 1 token | 1 token | 82 | 1.22 |
-| **Conditional single-token** | `firefighter` | 1 token | 2 tokens | 390 | **6.13** |
-| **True multi-token** | `sunflower` | 2 tokens | 2 tokens | 1,093 | 0.03 |
+| **Single-token** | `newsletter` | 1 token | 1 token | 82 | 1.22 |
+| **Unstable** | `firefighter` | 1 token | 2 tokens | 390 | **6.13** |
+| **Multi-token** | `sunflower` | 2 tokens | 2 tokens | 1,093 | 0.03 |
 
-All three pairwise differences are significant (p < 1e-13). The conditional
-group's mean is 5× the true-single group's and 200× the true-multi group's.
+All three pairwise differences were significant (p < 1e-13). The conditional group's mean is 5× the true-single group's and 200× the true-multi group's.
 
 ![Feature activation by tokenization group](results/figures/activation_by_token_type.png)
 
-Word frequency alone does not account for it. Activation is weak for very
-frequent compounds, spikes in the middle of the frequency range, and drops off
-again for rare ones — the shape you get if the feature tracks *merge history*
-rather than commonness.
+The correlation between the word frequency and the feature activation reminded normal distribution: the activation values spiked in the middle of the frequency range. This is another piece of evidence that the feature represents a specific tokenization (token merging) pattern rather than some grammar structure or meaning. 
+
+In a natural text, the words are normally divided by whitespaces, so words with a leading whitespace are more frequent in the corpus. As a result, for the medium-frequent compounds the tokens with a leading whitespace get merged, while the tokens without a whitespace stay unmerged. Since the model has to reconstruct the meaning of words from tokens (detokenize the concepts), it implicitly learns the tokenization patters, and becomes meta-aware of its own tokenizer.
 
 ![Frequency vs activation](results/figures/frequency_vs_activation.png)
 
-Full numbers, including every word that fired:
+
+## Limitations
+
+- This is a case study, mostly done on one model and one feature.
+- Transcoders only capture the MLP layers and leave out the attention layers that may be responsible for processing multi-token concepts.
+- The tokenizer is open-source and might leak to the training data.
+- The dataset consisted of English compounds only.
+- No ablation or causal intervention experiments were conducted.
+
+Full results:
 **[results/reference_run/RESULTS.md](results/reference_run/RESULTS.md)**
 
 ## Install
@@ -60,14 +67,11 @@ pip install -e .            # dataset + analysis, CPU only
 pip install -e ".[model]"   # adds torch + TransformerLens for the measurement stage
 ```
 
-Python 3.10+. The measurement stage wants ~9 GB of VRAM for Qwen3-4B in
-bfloat16; a free Colab T4 handles the full sweep in about 15 minutes. Every
-other stage runs on a laptop.
+Python 3.10+. The measurement stage wants ~9 GB of VRAM for Qwen3-4B in bfloat16.
 
-## Run it
+## Run
 
-The pipeline is three stages, each writing a file the next one reads, so the
-GPU step happens once and the analysis can be re-run freely.
+The pipeline includes three stages, each writing a file the next one reads, so the GPU step happens once and the analysis can be re-run many times.
 
 ```bash
 python scripts/build_dataset.py        # → results/groups.json         (seconds, CPU)
@@ -75,19 +79,17 @@ python scripts/measure_activations.py  # → results/activations.json    (~15 mi
 python scripts/analyze.py              # → statistics + results/figures/
 ```
 
-Two more scripts, both tokenizer-only:
+Same experiment with capitalized compounds:
 
 ```bash
 python scripts/capitalization.py       # → results/capitalization.json
 python scripts/build_page_data.py      # → docs/assets/tokens.js, for the write-up
 ```
 
-Every script takes `--help`. Useful flags:
+Useful flags:
 
 ```bash
-python scripts/build_dataset.py --capitalize          # group the capitalized forms
 python scripts/measure_activations.py --feature 12345 # point at a different feature
-python scripts/measure_activations.py --limit 20      # smoke test before the full sweep
 python scripts/analyze.py --equal-var                 # reproduce the original t-tests
 ```
 
@@ -141,68 +143,6 @@ pip install -e ".[dev]"
 pytest                  # 20 tests
 pytest -m "not slow"    # skip the ones that download the tokenizer
 ```
-
-The slow tests assert the exact group counts (82 / 390 / 1,093), so any change
-that quietly alters the dataset fails loudly.
-
-## Publishing the write-up
-
-The page is plain HTML with no build step. In the repository settings, under
-**Pages**, choose *Deploy from a branch* → `main` → `/docs`. A `.nojekyll` file
-is already in place so GitHub serves the assets untouched.
-
-## Method notes
-
-- **Activations are measured on the space-prefixed form** of every word.
-  Spacing is the independent variable, so it is never added silently.
-- **The reading is taken at the last token position**, which for a split word
-  is the position that has attended to all the others — where a detokenization
-  signal would have to appear.
-- **The hook point is `blocks.0.ln2.hook_normalized`**: the layer-normalised
-  residual stream entering the MLP, which is what the transcoder was trained on.
-- **Words are run bare, without context.** That keeps the manipulation clean
-  but means the result is about lexical processing, not about how the feature
-  behaves mid-sentence.
-
-## Differences from the original notebook
-
-The notebook is preserved unmodified in `notebooks/`. The refactor is faithful
-to it — the dataset counts match exactly — with four changes:
-
-1. **Group assignment is per-word, not by set difference.** The original built
-   groups by subtracting sets, which made ordering non-deterministic between
-   runs. Each word is now classified once from its two token counts, so groups
-   are disjoint by construction and order is preserved.
-2. **One word is no longer dropped.** `turnstile` is one token bare and two
-   with a leading space, so it fell out of every set-difference group. It now
-   lands in `bare_single_only` and gets reported.
-3. **The capitalization section runs to completion.** It ended in an infinite
-   loop in the notebook (a helper was passed the same list as both source and
-   accumulator). Results are in
-   [RESULTS.md](results/reference_run/RESULTS.md#capitalization).
-4. **Welch's t-test by default**, given group sizes spanning an order of
-   magnitude and visibly unequal variances. `--equal-var` restores the original
-   Student's test; the conclusions are unchanged either way.
-
-## Limitations
-
-The honest list, mostly carried over from the write-up:
-
-- **One feature, one layer, one model.** Nothing here shows the pattern
-  generalises beyond Qwen3-4B's layer 0.
-- **Transcoders only capture the MLP.** Attention is invisible to this method,
-  and reconstruction is imperfect, so "the feature does X" is a claim about the
-  transcoder's picture of the model.
-- **The tokenizer may be in the training data.** Qwen's tokenizer files are
-  public. Memorisation cannot be ruled out — though a feature that generalises
-  the pattern to unseen words is still a feature that learned something.
-- **1,566 English compounds** from one list. No other language, no other word
-  class, no held-out set.
-- **Correlational.** No ablation, no causal intervention on the feature.
-
-## Cite
-
-See [CITATION.cff](CITATION.cff).
 
 ## Credits
 
