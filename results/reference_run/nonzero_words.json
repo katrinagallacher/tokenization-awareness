@@ -1,0 +1,63 @@
+{
+  "note": "Complete lists of words with non-zero activation, from the January 2026 reference run. The conditional_single group's firing words were not enumerated in that run, so only a head sample is recorded here.",
+  "model": "Qwen/Qwen3-4B",
+  "layer": 0,
+  "feature": 118230,
+  "true_single": {
+    "n": 82,
+    "n_nonzero": 16,
+    "complete": true,
+    "activations": {
+      "heartbeat": 20.25,
+      "headline": 10.0,
+      "copyright": 8.625,
+      "breadcrumb": 8.0,
+      "deadline": 7.4688,
+      "weekday": 7.3438,
+      "newsletter": 6.5,
+      "dropout": 6.125,
+      "thumbnail": 5.9688,
+      "popover": 5.5312,
+      "lifetime": 4.3438,
+      "benchmark": 3.4688,
+      "bookmark": 2.5312,
+      "sandbox": 2.2031,
+      "barcode": 1.6641,
+      "passport": 0.0356
+    }
+  },
+  "true_multi": {
+    "n": 1093,
+    "n_nonzero": 9,
+    "complete": true,
+    "activations": {
+      "lighthouse": 9.125,
+      "summertime": 7.5938,
+      "peppermint": 6.3438,
+      "lifeguard": 3.2812,
+      "skyscraper": 2.2031,
+      "oversleep": 1.9844,
+      "jigsaw": 1.2031,
+      "limelight": 0.6055,
+      "humankind": 0.1855
+    }
+  },
+  "conditional_single": {
+    "n": 390,
+    "mean": 6.1271,
+    "std": 5.5718,
+    "complete": false,
+    "activations": {
+      "lawsuit": 6.4375,
+      "waterfall": 14.75,
+      "hindsight": 6.4375,
+      "overpower": 0.0,
+      "salesman": 1.1484375,
+      "farewell": 5.6875,
+      "roadway": 0.0,
+      "understand": 0.0,
+      "downhill": 3.328125,
+      "countryside": 0.0
+    }
+  }
+}

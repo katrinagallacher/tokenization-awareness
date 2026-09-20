@@ -1,0 +1,12 @@
+# Dataset + analysis stages (CPU, laptop-friendly)
+transformers>=4.51.0
+numpy>=1.24
+scipy>=1.10
+matplotlib>=3.7
+wordfreq>=3.0
+
+# Model stage — needed only by scripts/measure_activations.py
+torch>=2.1
+transformer-lens>=2.0
+safetensors>=0.4
+huggingface-hub>=0.20

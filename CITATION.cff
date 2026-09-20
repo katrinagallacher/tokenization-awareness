@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+title: "A Breakthrough Feature: Signs of Tokenization Awareness in LLMs"
+message: "If you use this code or these findings, please cite it as below."
+type: software
+authors:
+  - family-names: Matson
+    given-names: Ekaterina
+repository-code: "https://github.com/solidgoldmagikarp/tokenization-awareness"
+url: "https://medium.com/@solidgoldmagikarp/a-breakthrough-feature-signs-of-tokenization-awareness-in-llms-058fe880ef9f"
+abstract: >-
+  A layer-0 transcoder feature in Qwen3-4B (feature 118230) fires selectively on
+  English compound words whose tokenization is unstable under a leading
+  whitespace, suggesting the model has learned a compensatory signal for
+  detokenization ambiguity introduced by its own BPE tokenizer.
+keywords:
+  - mechanistic interpretability
+  - tokenization
+  - transcoders
+  - detokenization
+license: MIT
+date-released: 2026-01-14

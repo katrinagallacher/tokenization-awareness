@@ -1,0 +1,909 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A Breakthrough Feature: Signs of Tokenization Awareness in LLMs</title>
+    <meta
+      name="description"
+      content="A layer-0 transcoder feature in Qwen3-4B fires on compound words whose tokenization is unstable under a leading space — a compensatory signal for the model's own tokenizer."
+    />
+    <meta name="author" content="Ekaterina Matson" />
+
+    <meta property="og:type" content="article" />
+    <meta
+      property="og:title"
+      content="A Breakthrough Feature: Signs of Tokenization Awareness in LLMs"
+    />
+    <meta
+      property="og:description"
+      content="Feature 118230 in Qwen3-4B fires on compounds whose tokenization depends on a leading space."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="assets/style.css" />
+  </head>
+
+  <body>
+    <header class="masthead">
+      <div class="wrap-wide">
+        <p class="eyebrow">Mechanistic interpretability · Qwen3-4B · January 2026</p>
+        <h1>A breakthrough feature: signs of tokenization awareness in LLMs</h1>
+        <p class="lede">
+          One feature in Qwen3-4B's first layer fires on compound words — but only
+          on the ones whose tokenization is unstable. Not the words that are always
+          a single token. Not the words that are always split. The ambiguous middle.
+        </p>
+        <div class="byline">
+          <span><strong>Ekaterina Matson</strong></span>
+          <span>14 min read</span>
+          <a
+            href="https://medium.com/@solidgoldmagikarp/a-breakthrough-feature-signs-of-tokenization-awareness-in-llms-058fe880ef9f"
+            >Original post</a
+          >
+          <a href="https://github.com/solidgoldmagikarp/tokenization-awareness">Code</a>
+          <a href="https://www.neuronpedia.org/qwen3-4b/0-transcoder-hp/118230"
+            >Feature 118230</a
+          >
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div class="wrap">
+        <p>
+          Written as a research proposal for Neel Nanda's MATS stream, Summer 2026.
+          It did not make the shortlist, but the finding still seems worth sharing.
+          Everything below is reproducible from the
+          <a href="https://github.com/solidgoldmagikarp/tokenization-awareness"
+            >accompanying repository</a
+          >; the dataset stage needs nothing but a tokenizer.
+        </p>
+
+        <p>
+          One of my favourite fictional AIs, Golem XIV from the Stanisław Lem novel
+          of the same name, says of itself that
+          <em>nothing in me is hidden from me</em> — unlike a human, it is not a
+          region concealed from itself. Language models cannot yet make that claim.
+          But they do show signs of what a
+          <a
+            href="https://www.lesswrong.com/posts/MNKNKRYFxD4m2ioLG/a-novel-emergence-of-meta-awareness-in-llm-fine-tuning"
+            >LessWrong post by rife</a
+          >
+          calls <strong>meta-awareness</strong>: the ability to learn things beyond
+          what the training data was supposed to teach, and to use them at inference
+          time. Knowledge about themselves, their structure, their training, the
+          situation they are in.
+        </p>
+
+        <p>Examples found so far:</p>
+
+        <ul>
+          <li>
+            <strong>Introspective awareness.</strong> In
+            <a href="https://transformer-circuits.pub/2025/introspection/index.html"
+              >Jack Lindsey's experiment</a
+            >, Claude Opus 4.1 detected a "dog" vector injected into its own
+            activations and remarked that the researcher had made it think about
+            puppies.
+          </li>
+          <li>
+            <strong>Evaluation awareness.</strong> Advanced models
+            <a href="https://arxiv.org/pdf/2505.23836"
+              >notice when they are being tested</a
+            >, which makes safety assessment considerably harder.
+          </li>
+          <li>
+            <strong>Behavioural self-awareness.</strong> GPT-4o fine-tuned on insecure
+            code
+            <a href="https://arxiv.org/pdf/2501.11120">reported writing insecure code</a>,
+            without ever being trained to report it. Fine-tuned on a synthetic dataset
+            where sentence initials spelled HELLO, it spotted the pattern unprompted.
+          </li>
+        </ul>
+
+        <p>
+          I think there is another item for that list.
+          <strong
+            >Models can learn the peculiarities of their own token vocabulary</strong
+          >, and use that knowledge to compensate for its shortcomings. What follows
+          is one example, in the open-source model Qwen3-4B.
+        </p>
+      </div>
+
+      <div class="wrap-wide">
+        <div class="inspector">
+          <div class="inspector-head">
+            <h2>Token inspector</h2>
+            <p class="note">Real Qwen3-4B tokenization · ␣ marks a leading space</p>
+          </div>
+          <div
+            class="picker"
+            id="picker"
+            role="group"
+            aria-label="Choose a compound"
+          ></div>
+          <div class="readout" id="readout" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <div class="wrap">
+        <nav class="contents" aria-label="Contents">
+          <ol>
+            <li><a href="#curse">1 · The curse of tokenization</a></li>
+            <li><a href="#feature">2 · A compound feature</a></li>
+            <li><a href="#nut">3 · A tough nut to crack</a></li>
+            <li><a href="#pretok">4 · Pre-tokenization quirks</a></li>
+            <li><a href="#merging">5 · The mysterious merging</a></li>
+            <li><a href="#numbers">6 · What the numbers say</a></li>
+            <li><a href="#frequency">7 · Frequency doesn't explain it</a></li>
+            <li><a href="#learned">8 · What did the model learn?</a></li>
+            <li><a href="#alternatives">9 · Any other explanation?</a></li>
+            <li><a href="#circuits">10 · What about circuits?</a></li>
+            <li><a href="#capitals">11 · A cheap check: capitals</a></li>
+            <li><a href="#conclusion">12 · Conclusion</a></li>
+            <li><a href="#limitations">13 · Limitations</a></li>
+            <li><a href="#reproduce">14 · Reproduce it</a></li>
+            <li><a href="#references">15 · References</a></li>
+          </ol>
+        </nav>
+
+        <section id="curse">
+          <h2>1 · The curse of tokenization</h2>
+          <p>
+            As Andrej Karpathy
+            <a href="https://www.youtube.com/watch?v=zduSFxRajkE">put it</a>,
+            <em>tokenization is at the heart of much weirdness in LLMs</em>. Tokens,
+            the indivisible particles of a model's world, are behind some genuinely
+            strange behaviour: a prompt containing
+            <a
+              href="https://medium.com/@solidgoldmagikarp/glitch-tokens-the-words-ai-refuses-to-say-and-why-it-matters-a6798ef9815a"
+              >glitch tokens</a
+            >
+            caused a hilarious meltdown in GPT-3, and a question about a seahorse emoji
+            <a href="https://vgel.me/posts/seahorse/"
+              >sent several models into a spiral</a
+            >.
+          </p>
+          <p>
+            To process ordinary text, a model has to do two opposite things at once.
+          </p>
+          <p>
+            It needs <strong>sub-token</strong> information — to spell a word, find a
+            rhyme, add two numbers. That is hard, because a token's internal structure
+            is discarded during tokenization. It is why early models
+            <a
+              href="https://medium.com/@danisaysskol/breaking-down-llm-thought-process-the-strawberry-question-bdc564cc77a4"
+              >could not count the letter R in STRAWBERRY</a
+            >. Models partly overcome this:
+            <a href="https://aclanthology.org/2022.naacl-main.373.pdf"
+              >token embeddings carry some character-level information</a
+            >.
+          </p>
+          <p>
+            It also needs to go the other way. Words and collocations often get split
+            across several tokens, and the meaning has to be reassembled. Did
+            <em>John kicked a bucket</em> mean John died, or that there was a bucket in
+            his way? This reassembly — <strong>detokenization</strong> — apparently
+            begins in the very first layers and is refined later, producing a
+            <a href="https://arxiv.org/pdf/2410.05864"
+              >latent vocabulary, an inner lexicon</a
+            >, distinct from the token vocabulary.
+          </p>
+        </section>
+
+        <section id="feature">
+          <h2>2 · A compound feature</h2>
+          <p>
+            A couple of months ago I was playing with
+            <a href="https://www.neuronpedia.org/">Neuronpedia</a>'s Circuit Tracer,
+            looking for features involved in processing idioms — a long-standing
+            linguistic obsession of mine. Isolating features for concrete concepts is
+            hard, because
+            <a href="https://arxiv.org/abs/2210.01892">neurons are polysemantic</a>.
+            Sparse autoencoders and transcoders help: they break tightly packed
+            representations into more interpretable ones.
+          </p>
+          <p>
+            They are not perfect copies of the model. They decode only the MLP layers,
+            leaving attention uncaptured; features still overlap; and
+            <a
+              href="https://transformer-circuits.pub/2025/attribution-graphs/methods.html"
+              >up to half the output can differ from the original</a
+            >. But the approach has produced real results, including
+            <a
+              href="https://transformer-circuits.pub/2025/attribution-graphs/biology.html#dives-poems"
+              >two-hop reasoning circuits in Claude 3.5 Haiku</a
+            >.
+          </p>
+          <p>
+            At some point I fed Qwen3-4B an idiomatic sentence:
+            <em>Love was a battlefield, and they both refused to…</em> (expected
+            completion: <em>surrender</em>). The token
+            <code> battlefield</code> — note the leading space — got an interesting
+            reaction. In layer 0 it activated a
+            <a href="https://www.neuronpedia.org/qwen3-4b/0-transcoder-hp/118230"
+              >feature</a
+            >
+            whose top activations were:
+          </p>
+          <p class="note">bestselling · shootout · wildfires · backstory · bloodstream</p>
+          <p>
+            Circuit Tracer's automated description labelled this
+            <em>mixed medical/technical texts</em>. But the words come from completely
+            different domains, and it soon became obvious the feature represents
+            something more abstract: a class of words called
+            <strong>compounds</strong>.
+          </p>
+        </section>
+
+        <section id="nut">
+          <h2>3 · A tough nut to crack</h2>
+          <p>
+            A
+            <a href="https://en.wikipedia.org/wiki/Compound_(linguistics)">compound</a>
+            is a word made of two or more words: <em>sea + horse = seahorse</em>. All
+            languages have them; some are enthusiastic about it. German manages
+            <em>Donaudampfschifffahrtsgesellschaftskapitän</em> without embarrassment.
+          </p>
+          <p>
+            Compounds are a tough nut for language models. Some are a single token, and
+            the model may have to reach inside it to recover the meaning. Others are
+            two or more tokens, and the model has to do the opposite — assemble a
+            meaning from parts.
+          </p>
+          <p>
+            Feeding compounds to Qwen, I found that the split largely depends on the
+            leading space. <code>firefighter</code> is tokenized as
+            <em>fire</em> + <em>fighter</em>, but <code> firefighter</code> is a single
+            token. Some compounds are unaffected: <code>newsletter</code> and
+            <code> newsletter</code> are both one token. Others are always split:
+            <code>sunflower</code> is <em>sun</em> + <em>flower</em> either way.
+          </p>
+          <p>
+            That gives three groups, which the rest of this post is about — and which
+            the inspector above is coloured by:
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Group</th>
+                  <th>Example</th>
+                  <th>Bare</th>
+                  <th>With space</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>True single-token</td>
+                  <td>newsletter</td>
+                  <td>1 token</td>
+                  <td>1 token</td>
+                </tr>
+                <tr class="highlight">
+                  <td>Conditional single-token</td>
+                  <td>firefighter</td>
+                  <td>2 tokens</td>
+                  <td>1 token</td>
+                </tr>
+                <tr>
+                  <td>True multi-token</td>
+                  <td>sunflower</td>
+                  <td>2 tokens</td>
+                  <td>2 tokens</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="pretok">
+          <h2>4 · Pre-tokenization quirks</h2>
+          <p>
+            Why are there two versions of a token in the vocabulary, spaced and not?
+            And why is one compound whole while another is split?
+          </p>
+          <p>
+            Qwen uses a GPT-2 style BPE
+            <a href="https://huggingface.co/Qwen/Qwen-tokenizer/tree/main">tokenizer</a>,
+            and its rules are public. Training starts by splitting text into words —
+            <strong>pre-tokenization</strong>, a process responsible for a surprising
+            number of model quirks. (Sander Land's
+            <a href="https://tokencontributions.substack.com/">blog</a> covers it well.)
+            The rules live in the
+            <a href="https://huggingface.co/Qwen/Qwen-tokenizer/raw/main/tokenizer.json"
+              >pre-tokenizer file</a
+            >:
+          </p>
+
+          <pre><code>"pre_tokenizer": {
+  "type": "Sequence",
+  "pretokenizers": [
+    {
+      "type": "Split",
+      "pattern": {
+        "Regex": "(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|..."
+      },
+      "behavior": "Isolated"
+    },
+    { "type": "ByteLevel", "add_prefix_space": false }
+  ]
+}</code></pre>
+
+          <p>
+            The clause <code>[^\r\n\p{L}\p{N}]?\p{L}+</code> captures a word together
+            with one optional preceding non-letter, non-digit character. A space is
+            such a character, and ordinary text is full of spaces — so most captured
+            words carry a leading space. Non-spaced words exist too:
+            <code>&nbsp;&nbsp;fire</code> with two leading spaces does not match, and is
+            captured bare. Those presumably come mostly from code, where punctuation
+            behaves differently from prose.
+          </p>
+          <p>
+            Next, the captured words are split into characters forming a
+            <strong>base vocabulary</strong>, and the tokenizer learns
+            <strong>merges</strong>: gluing letters into syllables into sub-words, by
+            frequency. Which gives the first conclusion:
+            <strong
+              >the tokenization pattern depends on the word's frequency in the training
+              data.</strong
+            >
+          </p>
+        </section>
+
+        <section id="merging">
+          <h2>5 · The mysterious merging</h2>
+          <p>
+            Merging does not run forever. It stops when the vocabulary hits its size
+            limit — for Qwen,
+            <a href="https://qwen.readthedocs.io/en/latest/getting_started/concepts.html"
+              >151,643 tokens</a
+            >
+            plus special tokens. I have not found any explanation of why that particular
+            number; presumably some optimization metric. What matters is that the
+            process stopped there.
+          </p>
+          <p>
+            If a compound was frequent in English, and therefore in the corpus, there
+            was time to merge both the spaced and the bare form. Both versions ended up
+            in the vocabulary. If it was rare, neither did.
+            <strong>In the middle of the frequency range, things get interesting.</strong>
+          </p>
+          <p>
+            Because spaced words are more common in the corpus,
+            <strong
+              >medium-frequency compounds can get their spaced token merged while the
+              bare one stays unmerged</strong
+            >. That is exactly the conditional group.
+          </p>
+          <p>
+            This is checkable in Qwen's
+            <a href="https://huggingface.co/Qwen/Qwen-tokenizer/raw/main/vocab.json"
+              >vocabulary</a
+            >. Tokens are added in merge order, so an ID indicates both when it was
+            merged and how frequent the resulting string was:
+          </p>
+
+          <pre><code>"_news":3669          "_fire":3940          "_flower":22351
+"news":9984           "fire":10796          "flower":38753
+"_newsletter":20233   "_firefighter":94165
+"newsletter":71368    (no bare "firefighter")</code></pre>
+
+          <p>
+            <code>newsletter</code> made it in both ways. <code>firefighter</code> made
+            it only with the space — at ID 94,165, late. <code>flowerpot</code> never
+            made it at all. The merges themselves are visible in the
+            <a href="https://huggingface.co/Qwen/Qwen-tokenizer/raw/main/merges.txt"
+              >merges file</a
+            >, where <code>_firefighter</code> turns out to have an even more
+            interesting history.
+          </p>
+        </section>
+
+        <section id="numbers">
+          <h2>6 · What the numbers say</h2>
+          <p>
+            I took a list of
+            <a href="https://www.proofreadingservices.com/pages/compound-words-list"
+              >1,720 English compounds</a
+            >, kept the 1,566 written as a single solid word, and sorted them into the
+            three groups by tokenizing each one twice. Then I measured feature 118230's
+            activation on every one, at the last token position, with no surrounding
+            context.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Group</th>
+                  <th class="num">n</th>
+                  <th class="num">Mean</th>
+                  <th class="num">Std</th>
+                  <th class="num">Fired</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>True single-token</td>
+                  <td class="num">82</td>
+                  <td class="num">1.2202</td>
+                  <td class="num">3.1757</td>
+                  <td class="num">16 (19.5%)</td>
+                </tr>
+                <tr class="highlight">
+                  <td>Conditional single-token</td>
+                  <td class="num">390</td>
+                  <td class="num">6.1271</td>
+                  <td class="num">5.5718</td>
+                  <td class="num">—</td>
+                </tr>
+                <tr>
+                  <td>True multi-token</td>
+                  <td class="num">1,093</td>
+                  <td class="num">0.0298</td>
+                  <td class="num">0.4295</td>
+                  <td class="num">9 (0.8%)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            The conditional group's mean is five times the true-single group's and two
+            hundred times the true-multi group's. All three pairwise differences are
+            significant well past any reasonable threshold — the weakest, conditional
+            against true single, gives p ≈ 8×10⁻¹⁴.
+          </p>
+
+          <figure>
+            <img
+              src="assets/figures/activation_by_token_type.png"
+              alt="Box plot of feature activation for the three tokenization groups. The conditional single-token group has a much higher mean and a wide spread; the other two sit near zero with scattered outliers."
+            />
+            <figcaption>
+              Activation by group; the bar marks the mean, not the median. Two of the
+              three medians are zero, which says the distribution is sparse but nothing
+              about the difference between groups. The conditional group is the only one
+              whose box lifts off the floor.
+            </figcaption>
+          </figure>
+
+          <div class="callout">
+            <p>
+              <strong>A note on the outliers.</strong> Nine true multi-token words fire
+              anyway. Every one of them is split <em>across</em> the morpheme boundary
+              rather than at it: <code>lighthouse</code> becomes
+              <em>&nbsp;l</em> + <em>ighthouse</em>, not <em>&nbsp;light</em> +
+              <em>house</em>; <code>summertime</code> becomes <em>&nbsp;summ</em> +
+              <em>ertime</em>. Their final token is a long, near-whole-word chunk — the
+              same kind of unit the conditional group's single token is. The feature is
+              not confused by them so much as consistent about them.
+            </p>
+          </div>
+        </section>
+
+        <section id="frequency">
+          <h2>7 · Frequency doesn't explain it</h2>
+          <p>
+            If the feature simply detected common compounds, activation would rise with
+            frequency. Plotting
+            <a
+              href="https://en.wikipedia.org/wiki/Zipf%27s_law#Word_frequencies_in_natural_languages"
+              >Zipf score</a
+            >
+            against activation shows otherwise.
+          </p>
+
+          <figure>
+            <img
+              src="assets/figures/frequency_vs_activation.png"
+              alt="Scatter plot of Zipf frequency against feature activation for all three groups. Activation is weak at both ends of the frequency range and peaks in the middle, driven by the conditional single-token group."
+            />
+            <figcaption>
+              Frequency against activation, coloured by group; the strongest words in
+              each group are labelled. Measurements were taken on the spaced form, with
+              the space trimmed here for legibility.
+            </figcaption>
+          </figure>
+
+          <p>
+            Frequent compounds are mostly one token regardless of the space, and mostly
+            stay quiet. Rare compounds are mostly split, and stay quiet too. The words
+            whose tokenization depends on the space sit in the middle — and light up.
+            Activation is not linear in frequency; it is humped, and the hump is exactly
+            where the merge process ran out of room.
+          </p>
+        </section>
+
+        <section id="learned">
+          <h2>8 · What did the model learn?</h2>
+          <p>
+            Everything so far concerns the <strong>tokenizer</strong>. As I noted in the
+            <a
+              href="https://medium.com/@solidgoldmagikarp/glitch-tokens-the-words-ai-refuses-to-say-and-why-it-matters-a6798ef9815a"
+              >glitch tokens post</a
+            >, the tokenizer and the model are different models. So what does unstable
+            tokenization do during the <em>model's</em> training?
+          </p>
+          <p>Imagine a model training on text containing our three compounds.</p>
+          <p>
+            <strong>newsletter.</strong> In
+            <em>Sign up for our daily newsletter to receive the latest news</em>, the
+            word is always a single token. The model also meets
+            <em>news</em> and <em>letter</em> separately, but never inside this word.
+          </p>
+          <p>
+            <strong>flowerpot.</strong> In
+            <em>The first known use of flowerpot was in 1583</em>, the word is always
+            two tokens — there is no <em>flowerpot</em> token in the vocabulary at all.
+            The model meets the parts separately too, and learns that side by side they
+            make something new.
+          </p>
+          <p>
+            <strong>firefighter.</strong> Here it gets complicated. In
+            <em>Being a firefighter is more than responding to emergencies</em>, the
+            same word in the same meaning arrives sometimes as one token and sometimes
+            as two. To tell "this is a compound" from "these are two nearby words", the
+            model has to spend some effort on context.
+          </p>
+          <p>
+            No semantic processing is happening at layer 0 yet. What the feature looks
+            like is a <strong>compensatory mechanism</strong>: a flag raised early,
+            marking words whose identity the tokenizer left unresolved and which will
+            need attention downstream. And a reminder — transcoders decode only the
+            MLP's contribution. They say nothing about what attention is doing here.
+          </p>
+        </section>
+
+        <section id="alternatives">
+          <h2>9 · Any other explanation?</h2>
+          <p>
+            As Chris Olah
+            <a href="https://www.transformer-circuits.pub/2022/mech-interp-essay">wrote</a>,
+            features are the things a network would ideally dedicate a neuron to. Why
+            would Qwen3-4B dedicate one to compounds — and not compounds in general, but
+            specifically those with unstable tokenization? Isn't there something
+            simpler?
+          </p>
+
+          <ol class="alts">
+            <li>
+              <h3>It just detects frequent compounds</h3>
+              <p>
+                Then activation would rise with the Zipf score. It doesn't: it is weak
+                at the frequent end, spikes in the middle, and drops again for rare
+                words.
+              </p>
+            </li>
+            <li>
+              <h3>It detects a semantic property, like compositionality</h3>
+              <p>
+                Two problems. The feature sits in the very first layer, and semantics is
+                normally processed later. And I found no semantic thread among the words
+                that fire: <em>bedtime</em> is perfectly transparent,
+                <em>groundbreaking</em> is metaphorical, and both activate strongly.
+              </p>
+            </li>
+            <li>
+              <h3>The firing compounds share a topic</h3>
+              <p>
+                Several do look like they came from HTML — <em>headline</em>,
+                <em>copyright</em>, <em>newsletter</em>, <em>thumbnail</em>. But
+                <em>heartbeat</em> and <em>deadline</em> do not, and
+                <em>heartbeat</em> is the single strongest activation in the set.
+              </p>
+            </li>
+            <li>
+              <h3>It transfers a pattern from Chinese</h3>
+              <p>
+                Qwen3 models
+                <a
+                  href="https://qwen.readthedocs.io/en/latest/getting_started/concepts.html"
+                  >support 119 languages</a
+                >
+                and were
+                <a
+                  href="https://techcrunch.com/2025/04/28/alibaba-unveils-qwen-3-a-family-of-hybrid-ai-reasoning-models/"
+                  >trained on 36 trillion tokens</a
+                >. I have not found the Chinese share of that, but assume it is
+                substantial. Translating some of the firing compounds turned up no
+                obvious pattern — though I cannot rule this out.
+              </p>
+            </li>
+            <li>
+              <h3>It memorized the tokenizer rather than learning anything</h3>
+              <p>
+                Qwen's tokenizer files are freely available and very likely ended up in
+                the training data. Models are notoriously good at memorizing. But this
+                does not change the conclusion much: a feature that applies the pattern
+                to words at inference time has generalized it, whatever its source.
+              </p>
+            </li>
+          </ol>
+        </section>
+
+        <section id="circuits">
+          <h2>10 · What about circuits?</h2>
+          <p>
+            Much of the interpretability literature is about
+            <a href="https://www.neelnanda.io/mechanistic-interpretability/glossary"
+              >circuits</a
+            >: the edges connecting features, the paths information takes between
+            layers. Feature 118230 connects to several downstream features that are also
+            about compounds.
+          </p>
+          <p>
+            They specialize as they go, which is what you would expect. Early features
+            are broader — compounds in programming contexts, say. Later ones get oddly
+            specific:
+          </p>
+          <ul>
+            <li>
+              A
+              <a href="https://www.neuronpedia.org/qwen3-4b/4-transcoder-hp/968">feature</a>
+              that seems to track fire, light and the sun: <em>sunrise</em>,
+              <em>lighthouse</em>, <em>fireplace</em>.
+            </li>
+            <li>
+              A feature triggered by proper-noun compounds — <em>Obamacare</em>,
+              <em>WikiLeaks</em>, <em>TripAdvisor</em>, <em>Starbucks</em> — though it
+              catches some non-compounds too.
+            </li>
+          </ul>
+        </section>
+
+        <section id="capitals">
+          <h2>11 · A cheap check: capitals</h2>
+          <div class="callout callout-new">
+            <p>
+              <strong>New in this version.</strong> The capitalization experiment was
+              started in the original notebook but never finished; it hit an infinite
+              loop. It runs now, and it turns out to be the cheapest available test of
+              the merge-frequency story — tokenizer only, no GPU, a few seconds.
+            </p>
+          </div>
+          <p>
+            Capitalization is a second lever on tokenization, independent of the space.
+            If the grouping really reflects merge history rather than anything about
+            meaning, capitalizing every word should scramble it — because
+            <code>Firefighter</code> was never frequent enough in the corpus to earn a
+            merge, while <code> firefighter</code> was.
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Group</th>
+                  <th class="num">As written</th>
+                  <th class="num">Capitalized</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>True single-token</td>
+                  <td class="num">82</td>
+                  <td class="num">84</td>
+                </tr>
+                <tr class="highlight">
+                  <td>Conditional single-token</td>
+                  <td class="num">390</td>
+                  <td class="num">93</td>
+                </tr>
+                <tr>
+                  <td>True multi-token</td>
+                  <td class="num">1,093</td>
+                  <td class="num">1,383</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Three quarters of the conditional group evaporates: 295 of the 390 words
+            become true multi-token once capitalized. The prediction holds.
+          </p>
+          <p>
+            More interesting are the eleven words that move the other way, into the
+            conditional group only when capitalized:
+            <em
+              >Superman, Thanksgiving, Parkway, Pathfinder, Highland, Highlander,
+              Typeface, Riverside, Keystone, Wonderland, Snapdragon</em
+            >. Almost all proper nouns or place-name elements — words whose capitalized
+            form is the common one in text, and which therefore earned the merge in that
+            shape. The merge-frequency account predicts precisely this, and it costs
+            nothing to check.
+          </p>
+        </section>
+
+        <section id="conclusion">
+          <h2>12 · Conclusion</h2>
+          <p>
+            Language models are very good at generalizing and at noticing patterns. It
+            is not surprising that they generalize further than intended, picking up
+            regularities that describe meta-properties of their training data or of
+            themselves.
+          </p>
+          <p>
+            Tokenization awareness seems to me an especially interesting case of
+            meta-awareness, because it resembles a human's ability to
+            <em>speak</em> a language natively and <em>study</em> it at the same time,
+            recognising its peculiarities from inside. Language is a separate thing from
+            us, yet deeply intertwined with how we think, and in some sense it shapes
+            our world. The tokenizer is likewise a separate model from the language
+            model, and likewise shapes everything it does.
+          </p>
+          <p>
+            The case here is a small one. But I hope it adds something to our picture of
+            detokenization, and to the growing body of work on what models know about
+            themselves.
+          </p>
+        </section>
+
+        <section id="limitations">
+          <h2>13 · Limitations</h2>
+          <ul>
+            <li>
+              <strong>One feature, one layer, one model.</strong> Nothing here shows the
+              pattern generalizes beyond Qwen3-4B's layer 0.
+            </li>
+            <li>
+              <strong>Transcoders only see the MLP.</strong> Attention is invisible to
+              this method, and reconstruction is imperfect — so every claim is really a
+              claim about the transcoder's picture of the model.
+            </li>
+            <li>
+              <strong>Words were run bare, without context.</strong> That keeps the
+              manipulation clean, but the result is about lexical processing, not about
+              behaviour mid-sentence.
+            </li>
+            <li>
+              <strong>1,566 English compounds</strong> from a single list. No other
+              language, no other word class, no held-out set.
+            </li>
+            <li>
+              <strong>Correlational.</strong> No ablation, no causal intervention on the
+              feature. The obvious next step is to clamp it and see what breaks.
+            </li>
+          </ul>
+        </section>
+
+        <section id="reproduce">
+          <h2>14 · Reproduce it</h2>
+          <p>
+            The dataset and analysis stages run on a laptop; only the measurement stage
+            needs a GPU, and a free Colab T4 handles the full sweep in about fifteen
+            minutes.
+          </p>
+
+          <pre><code>git clone https://github.com/solidgoldmagikarp/tokenization-awareness.git
+cd tokenization-awareness
+pip install -e ".[model]"
+
+python scripts/build_dataset.py        # → groups.json      (seconds, CPU)
+python scripts/measure_activations.py  # → activations.json (~15 min, GPU)
+python scripts/analyze.py              # → statistics + figures
+python scripts/capitalization.py       # → the section above (seconds, CPU)</code></pre>
+
+          <p>
+            The group counts are asserted in the test suite, so a change that quietly
+            alters the dataset fails loudly rather than silently.
+          </p>
+        </section>
+
+        <section id="references">
+          <h2>15 · References</h2>
+          <ul class="refs">
+            <li>
+              <b>rife.</b>
+              <a
+                href="https://www.lesswrong.com/posts/MNKNKRYFxD4m2ioLG/a-novel-emergence-of-meta-awareness-in-llm-fine-tuning"
+                >A Novel Emergence of Meta-Awareness in LLM Fine-Tuning</a
+              >. LessWrong.
+            </li>
+            <li>
+              <b>Karpathy, Andrej.</b>
+              <a href="https://www.youtube.com/watch?v=zduSFxRajkE"
+                >Let's build the GPT Tokenizer</a
+              >.
+            </li>
+            <li>
+              <b>Hanna, Michael.</b>
+              <a href="https://huggingface.co/mwhanna/qwen3-4b-transcoders"
+                >Qwen3-4B transcoders</a
+              >. 2025.
+            </li>
+            <li>
+              <b>Haslett, David A.</b>
+              <a
+                href="https://direct.mit.edu/coli/article/51/3/785/128327/Tokenization-Changes-Meaning-in-Large-Language"
+                >Tokenization Changes Meaning in Large Language Models: Evidence from
+                Chinese</a
+              >. Computational Linguistics 51(3), 2025.
+            </li>
+            <li>
+              <b>Hiraoka, Tatsuya, and Kentaro Inui.</b>
+              <a href="https://aclanthology.org/2025.findings-emnlp.719.pdf"
+                >Spelling-out is not Straightforward</a
+              >. Findings of EMNLP 2025.
+            </li>
+            <li>
+              <b>Lindsey, Jack, et al.</b>
+              <a
+                href="https://transformer-circuits.pub/2025/attribution-graphs/biology.html"
+                >On the Biology of a Large Language Model</a
+              >. Transformer Circuits Thread, 2025.
+            </li>
+            <li>
+              <b>Chai, Yekun, et al.</b>
+              <a href="https://aclanthology.org/2024.findings-emnlp.86.pdf"
+                >Tokenization Falling Short: On Subword Robustness in LLMs</a
+              >. Findings of EMNLP 2024.
+            </li>
+            <li>
+              <b>Kaplan, Guy, et al.</b>
+              <a href="https://arxiv.org/pdf/2410.05864"
+                >From Tokens To Words: On The Inner Lexicon Of LLMs</a
+              >. arXiv:2410.05864.
+            </li>
+            <li>
+              <b>Nanda, Neel, and Joseph Bloom.</b>
+              <a href="https://github.com/TransformerLensOrg/TransformerLens"
+                >TransformerLens</a
+              >. 2022.
+            </li>
+            <li>
+              <b>Speer, Robyn.</b>
+              <a href="https://doi.org/10.5281/zenodo.7199437">wordfreq v3.0</a>. 2022.
+            </li>
+            <li>
+              <b>Vogel.</b>
+              <a href="https://vgel.me/posts/seahorse/"
+                >Why do LLMs freak out over the seahorse emoji?</a
+              >
+            </li>
+            <li>
+              <b>Land, Sander.</b>
+              <a href="https://tokencontributions.substack.com/">Token Contributions</a>.
+            </li>
+          </ul>
+        </section>
+      </div>
+
+      <footer>
+        <div class="wrap">
+          <p>
+            The research was done in close collaboration with Claude Sonnet 4.5, which
+            contributed substantially to the experiment design, the code, and the
+            interpretation of results. The prose is mine.
+          </p>
+          <p>
+            Compound list from
+            <a href="https://www.proofreadingservices.com/pages/compound-words-list"
+              >proofreadingservices.com</a
+            >. Code and data:
+            <a href="https://github.com/solidgoldmagikarp/tokenization-awareness"
+              >github.com/solidgoldmagikarp/tokenization-awareness</a
+            >, MIT licensed. Originally published on
+            <a
+              href="https://medium.com/@solidgoldmagikarp/a-breakthrough-feature-signs-of-tokenization-awareness-in-llms-058fe880ef9f"
+              >Medium</a
+            >, 14 January 2026.
+          </p>
+        </div>
+      </footer>
+    </main>
+
+    <script src="assets/tokens.js"></script>
+    <script src="assets/app.js"></script>
+  </body>
+</html>
